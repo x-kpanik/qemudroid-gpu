@@ -1,0 +1,14 @@
+# APK files (add your own)
+*.apk
+
+# Docker artifacts
+*.tar.gz
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,107 @@
+FROM ubuntu:20.04
+
+ARG SDK_VERSION=34
+ARG EMULATOR_ARCH=x86_64
+
+# -------------------- NVIDIA GPU Support -------------------
+ENV NVIDIA_VISIBLE_DEVICES=all
+ENV NVIDIA_DRIVER_CAPABILITIES=graphics,utility,compute
+
+# -------------------- Common -------------------
+# TBD: to clean more unnecessary libs!
+RUN apt-get update && \
+    apt-get install -y \
+            wget \
+            curl \
+            unzip \
+            libglu1 \
+            libx11-6 libxcb1 libxdamage1 libnss3 libxcomposite1 libxcursor1 libxi6 libxext6 libxfixes3 \
+            lib32stdc++6 \
+            libvulkan1 \
+            libgl1-mesa-glx \
+            libgl1-mesa-dri \
+            libegl1-mesa \
+            libpng16-16 \
+            libxrandr2 \
+            libxkbcommon0 \
+            libxkbfile1 \
+            libxkbcommon-x11-0 \
+            libfontconfig1 \
+            libfreetype6 \
+            libxcb-cursor0 \
+            libxcb-icccm4 \
+            libxcb-image0 \
+            libxcb-keysyms1 \
+            libxcb-render-util0 \
+            libxcb-shape0 \
+            libxcb-xinerama0 \
+            libxrender1 \
+            libsm6 \
+            libice6 \
+            libdrm2 \
+            libgbm1 \
+            libepoxy0 \
+            gcc \
+            libx11-dev && \
+    apt-get clean && apt-get purge
+
+# ----------------- XInitThreads Workaround -----------------
+# Fix for "Assertion `!xcb_xlib_threads_sequence_lost' failed"
+# https://github.com/smcv/workaround-shadow-tactics
+COPY preload-xinitthreads.c /tmp/
+RUN gcc -shared -fPIC -o /usr/lib/preload-xinitthreads.so /tmp/preload-xinitthreads.c -lX11 && \
+    rm /tmp/preload-xinitthreads.c
+
+ENV JAVA_HOME=/opt/java/openjdk
+COPY --from=eclipse-temurin:17 $JAVA_HOME $JAVA_HOME
+ENV PATH="${JAVA_HOME}/bin:${PATH}"
+
+ARG ANDROID_HOME=/opt/android-sdk
+
+ENV LANG=C.UTF-8 \
+    SHELL=/bin/bash \
+    DEBIAN_FRONTEND=noninteractive \
+    VERSION=${SDK_VERSION} \
+    ANDROID_SDK_ROOT=$ANDROID_HOME \
+    PATH=$PATH:$ANDROID_HOME/cmdline-tools/tools/bin:$ANDROID_HOME/emulator:$ANDROID_HOME/platform-tools \
+    LD_LIBRARY_PATH=${ANDROID_HOME}/emulator/lib64/qt/lib:${ANDROID_HOME}/emulator/lib64:${ANDROID_HOME}/emulator/lib64/gles_swiftshader \
+    LD_PRELOAD=/usr/lib/preload-xinitthreads.so
+
+# ----------------- Android SDK -----------------
+ARG COMMANDLINE_TOOLS_URL=https://dl.google.com/android/repository/commandlinetools-linux-7302050_latest.zip
+ARG ANDROID_SDK_FILE_NAME=commandlinetools.zip
+
+RUN curl $COMMANDLINE_TOOLS_URL --progress-bar --location --output $ANDROID_SDK_FILE_NAME && \
+  unzip $ANDROID_SDK_FILE_NAME -d $ANDROID_SDK_ROOT && \
+  mv $ANDROID_SDK_ROOT/cmdline-tools $ANDROID_SDK_ROOT/tools && \
+  mkdir $ANDROID_SDK_ROOT/cmdline-tools && \
+  mv $ANDROID_SDK_ROOT/tools $ANDROID_SDK_ROOT/cmdline-tools/tools && \
+  rm -f $ANDROID_SDK_FILE_NAME
+
+RUN mkdir $HOME/.android && touch $HOME/.android/repositories.cfg && \
+    yes | sdkmanager --verbose --channel=0 \
+    "platforms;android-${SDK_VERSION}" \
+    "emulator" \
+    "platform-tools" \
+    "system-images;android-${SDK_VERSION};google_apis;${EMULATOR_ARCH}" && \
+    chmod -R o+rwX ${ANDROID_SDK_ROOT}
+
+# ------------------ Emulators ------------------
+RUN echo "no" | avdmanager create avd \
+    --name emulator_${SDK_VERSION} \
+    --package "system-images;android-${SDK_VERSION};google_apis;${EMULATOR_ARCH}" \
+    --abi google_apis/${EMULATOR_ARCH} && \
+    mksdcard -l e 512M /sdcard.img
+
+COPY hardware/config_${SDK_VERSION}.ini /root/.android/avd/emulator_${SDK_VERSION}.avd/config.ini
+
+# ----------------- ADB Keys ------------------
+RUN adb keygen /root/.android/adbkey
+
+# ----------------- Entrypoint ------------------
+COPY run_emulator.sh entrypoint.sh /
+RUN chmod +x /run_emulator.sh /entrypoint.sh
+
+EXPOSE 5037 5554-5600 8554
+
+ENTRYPOINT ["/entrypoint.sh"]

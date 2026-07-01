@@ -1,0 +1,29 @@
+# Base image you built from Dockerfile.emulator (see README "Build from Source").
+# Pass the tag you used via --build-arg, e.g.:
+#   docker build --build-arg BASE_IMAGE=android-emulator:headless \
+#     -t android-emulator:webrtc -f Dockerfile.headless_webrtc_envoy .
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+
+# Устанавливаем nginx
+RUN apt-get update && apt-get install -y nginx && apt-get clean
+
+# Копируем Envoy из официального образа
+COPY --from=envoyproxy/envoy:v1.28-latest /usr/local/bin/envoy /usr/local/bin/envoy
+
+# Копируем envoy конфиг как шаблон (порты подставляются при старте)
+COPY webrtc/envoy.yaml /etc/envoy/envoy.yaml.template
+
+# Копируем собранный React (статика)
+COPY webrtc/emulator-demo/build /var/www/html
+
+# nginx конфиг
+RUN echo 'server { listen 3000; root /var/www/html; index index.html; location / { try_files $uri /index.html; } }' > /etc/nginx/sites-available/default
+
+# Скрипт запуска всего (с подстановкой портов из ENV)
+COPY webrtc/webrtc-entrypoint.sh /webrtc-entrypoint.sh
+RUN chmod +x /webrtc-entrypoint.sh
+
+EXPOSE 3000 8080
+
+ENTRYPOINT ["/webrtc-entrypoint.sh"]
