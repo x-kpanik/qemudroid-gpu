@@ -126,7 +126,7 @@ docker logs android-emu-1 2>&1 | grep "Graphics Adapter"
 ## Notes
 
 - GPU mode uses `-gpu host` / `hw.gpu.mode=host` and needs a running X server.
-- Each emulator uses ~1 GB VRAM, 4 CPU cores, 12 GB RAM.
+- Each emulator uses ~1 GB VRAM, 4 CPU cores, 4+ GB RAM.
 - Built on Ubuntu 20.04 (not tested on 22.04+); `LD_PRELOAD` applies an XInitThreads fix for a libxcb threading crash.
 
 ## License
